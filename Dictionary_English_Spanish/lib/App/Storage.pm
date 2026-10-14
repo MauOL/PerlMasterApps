@@ -1,7 +1,8 @@
 package App::Storage;
 use strict;
 use warnings;
-
+use utf8;
+use open ':std', ':encoding(UTF-8)';
 use JSON::PP;
 use File::Spec;
 use File::Path qw(make_path);
