@@ -5,38 +5,51 @@ use utf8;
 use open ':std', ':encoding(UTF-8)';
 use Tk;
 use App::OpenAI;
+use App::Audio;
 
 sub run {
     my ($class, $dict) = @_;
 
+    # ---------------- Estado ----------------
     my $openai        = App::OpenAI->new();
-    my $rows_per_page = 3;                 # ajusta a tu gusto
+    my $audio         = App::Audio->new();
+    my $rows_per_page = 3;
     my $current_page  = 0;
     my $filtered      = [];
 
-    my $mw = MainWindow->new;
+    # -------- Declaraciones adelantadas (TODAS antes de los closures) --------
+    my ($apply_filter, $render_table, $refresh_all, $play_audio_for);
+    my ($mw, $body, $form, $status);
+    my ($english_entry, $save_button, $speak_button);
+    my ($filter_entry, $filter_button, $clear_button);
+    my ($prev_button, $page_label, $next_button);
+    my ($table_frame, $font_base, $font_small, $font_cell, $font_head, $font_title);
+    my (@headers, @widths);
+
+    # ---------------- Ventana ----------------
+    $mw = MainWindow->new;
     $mw->title('Diccionario Inglés-Español');
     $mw->geometry('1250x820');
     $mw->minsize(950, 600);
     $mw->configure(-background => '#f4f6f8');
 
-    my $font_title = ['Segoe UI', 16, 'bold'];
-    my $font_base  = ['Segoe UI', 10];
-    my $font_small = ['Segoe UI', 9];
-    my $font_cell = ['Segoe UI', 12];          # solo celdas
-    my $font_head = ['Segoe UI', 13, 'bold'];  # solo encabezados
+    $font_title = ['Segoe UI', 16, 'bold'];
+    $font_base  = ['Segoe UI', 10];
+    $font_small = ['Segoe UI', 9];
+    $font_cell  = ['Segoe UI', 12];
+    $font_head  = ['Segoe UI', 13, 'bold'];
 
     # ---------------- Cabecera ----------------
     my $header = $mw->Frame(-background => '#2c3e50')->pack(-fill => 'x');
     $header->Label(
-        -text       => 'Diccionario Inglés-Español (OpenAI)',
+        -text       => 'Diccionario Inglés-Español',
         -font       => $font_title,
         -foreground => 'white',
         -background => '#2c3e50',
     )->pack(-anchor => 'w', -padx => 12, -pady => 8);
 
-    # ---------------- Barra de estado inferior ----------------
-    my $status = $mw->Label(
+    # ---------------- Barra de estado ----------------
+    $status = $mw->Label(
         -text       => 'Listo.',
         -anchor     => 'w',
         -background => '#ecf0f1',
@@ -45,11 +58,11 @@ sub run {
     );
     $status->pack(-side => 'bottom', -fill => 'x');
 
-    my $body = $mw->Frame(-background => '#f4f6f8')
+    $body = $mw->Frame(-background => '#f4f6f8')
         ->pack(-fill => 'both', -expand => 1, -padx => 12, -pady => 8);
 
     # ---------------- Formulario de alta ----------------
-    my $form = $body->Frame(-background => '#f4f6f8')->pack(-fill => 'x');
+    $form = $body->Frame(-background => '#f4f6f8')->pack(-fill => 'x');
 
     $form->Label(
         -text       => 'Palabra en inglés:',
@@ -57,11 +70,11 @@ sub run {
         -background => '#f4f6f8',
     )->pack(-side => 'left', -padx => 5);
 
-    my $english_entry = $form->Entry(-font => $font_base, -width => 26);
+    $english_entry = $form->Entry(-font => $font_base, -width => 26);
     $english_entry->pack(-side => 'left', -padx => 5);
 
-    my $save_button = $form->Button(
-        -text             => 'Guardar (OpenAI)',
+    $save_button = $form->Button(
+        -text             => 'Guardar',
         -background       => '#27ae60',
         -foreground       => 'white',
         -activebackground => '#2ecc71',
@@ -69,6 +82,16 @@ sub run {
         -width            => 16,
     );
     $save_button->pack(-side => 'left', -padx => 5);
+
+    $speak_button = $form->Button(
+        -text             => '🔊 Pronunciar',
+        -background       => '#8e44ad',
+        -foreground       => 'white',
+        -activebackground => '#9b59b6',
+        -font             => $font_base,
+        -width            => 14,
+    );
+    $speak_button->pack(-side => 'left', -padx => 5);
 
     $form->Label(
         -text       => 'Se consultará la palabra + significados en inglés y español + 3 ejemplos.',
@@ -86,10 +109,10 @@ sub run {
         -background => '#f4f6f8',
     )->pack(-side => 'left', -padx => 5);
 
-    my $filter_entry = $filter_frame->Entry(-font => $font_base, -width => 26);
+    $filter_entry = $filter_frame->Entry(-font => $font_base, -width => 26);
     $filter_entry->pack(-side => 'left', -padx => 5);
 
-    my $filter_button = $filter_frame->Button(
+    $filter_button = $filter_frame->Button(
         -text             => 'Filtrar',
         -background       => '#2980b9',
         -foreground       => 'white',
@@ -99,7 +122,7 @@ sub run {
     );
     $filter_button->pack(-side => 'left', -padx => 5);
 
-    my $clear_button = $filter_frame->Button(
+    $clear_button = $filter_frame->Button(
         -text             => 'Limpiar',
         -background       => '#95a5a6',
         -foreground       => 'white',
@@ -109,10 +132,10 @@ sub run {
     );
     $clear_button->pack(-side => 'left', -padx => 5);
 
-    # ---------------- Paginación ----------------
+    # ---------------- Paginacion ----------------
     my $pagination_frame = $body->Frame(-background => '#f4f6f8')->pack(-fill => 'x');
 
-    my $prev_button = $pagination_frame->Button(
+    $prev_button = $pagination_frame->Button(
         -text             => '◀ Anterior',
         -background       => '#34495e',
         -foreground       => 'white',
@@ -122,7 +145,7 @@ sub run {
     );
     $prev_button->pack(-side => 'left', -padx => 5);
 
-    my $page_label = $pagination_frame->Label(
+    $page_label = $pagination_frame->Label(
         -text       => 'Página 1 de 1',
         -font       => $font_base,
         -background => '#f4f6f8',
@@ -130,7 +153,7 @@ sub run {
     );
     $page_label->pack(-side => 'left', -padx => 15);
 
-    my $next_button = $pagination_frame->Button(
+    $next_button = $pagination_frame->Button(
         -text             => 'Siguiente ▶',
         -background       => '#34495e',
         -foreground       => 'white',
@@ -147,20 +170,20 @@ sub run {
         -relief      => 'solid',
     )->pack(-fill => 'both', -expand => 1, -pady => 6);
 
-    my $table_frame = $table_outer->Frame(-background => 'white')
+    $table_frame = $table_outer->Frame(-background => 'white')
         ->pack(-fill => 'both', -expand => 1, -padx => 1, -pady => 1);
 
-    my @headers = ('English', 'Significado (ES)', 'Meaning (EN)',
-                   'Ejemplos (EN)', 'Ejemplos (ES)');
-    my @widths  = (140, 240, 260, 320, 320);
+    @headers = ('🔊', 'English', 'Significado (ES)', 'Meaning (EN)',
+                'Ejemplos (EN)', 'Ejemplos (ES)');
+    @widths  = (55, 140, 240, 260, 320, 320);
 
     for my $c (0 .. $#headers) {
-        $table_frame->gridColumnconfigure($c,
-            -minsize => $widths[$c], -weight => 1);
+        $table_frame->gridColumnconfigure($c, -minsize => $widths[$c], -weight => 1);
     }
 
-    # ---------------- Helpers ----------------
-    my ($apply_filter, $render_table, $refresh_all);
+    # =====================================================================
+    #  Closures (ya con TODAS las variables inicializadas)
+    # =====================================================================
 
     $apply_filter = sub {
         my $q = $filter_entry->get() // '';
@@ -180,8 +203,8 @@ sub run {
         my $total       = @$filtered;
         my $total_pages = $total ? int(($total - 1) / $rows_per_page) + 1 : 1;
 
-        $current_page = 0                 if $current_page < 0;
-        $current_page = $total_pages - 1  if $current_page > $total_pages - 1;
+        $current_page = 0                if $current_page < 0;
+        $current_page = $total_pages - 1 if $current_page > $total_pages - 1;
 
         # Encabezados
         for my $c (0 .. $#headers) {
@@ -219,6 +242,22 @@ sub run {
         for my $i ($start .. $end) {
             my $item = $filtered->[$i];
             my $r    = $i - $start + 1;
+            my $word = $item->{english} // '';
+
+            # ---- Boton de audio de la fila (declarado ANTES del closure) ----
+            my $play_btn;
+            $play_btn = $table_frame->Button(
+                -text             => '🔊',
+                -font             => $font_cell,
+                -background       => '#8e44ad',
+                -foreground       => 'white',
+                -activebackground => '#9b59b6',
+                -width            => 3,
+                -cursor           => 'hand2',
+                -command          => sub { $play_audio_for->($word, $play_btn) },
+            );
+            $play_btn->grid(-row => $r, -column => 0,
+                            -sticky => 'nsew', -padx => 4, -pady => 4);
 
             my @meanings_es = @{ $item->{meanings_es} // [] };
             if (!@meanings_es && ref $item->{meanings} eq 'ARRAY') {
@@ -252,13 +291,13 @@ sub run {
                     -foreground => '#2c3e50',
                     -anchor     => 'nw',
                     -justify    => 'left',
-                    -wraplength => $widths[$c] - 12,
-                )->grid(-row => $r, -column => $c,
+                    -wraplength => $widths[$c + 1] - 12,     # $c+1 por la columna 🔊
+                )->grid(-row => $r, -column => $c + 1,
                         -sticky => 'nsew', -padx => 4, -pady => 4);
             }
         }
 
-        # Rellenar filas sobrantes para que la tabla mantenga altura uniforme
+        # Rellenar filas sobrantes
         for my $r (($end - $start + 2) .. $rows_per_page) {
             for my $c (0 .. $#headers) {
                 $table_frame->Label(
@@ -283,7 +322,58 @@ sub run {
         $render_table->();
     };
 
-    # ---------------- Acción Guardar ----------------
+    $play_audio_for = sub {
+        my ($word, $btn) = @_;
+        $word //= '';
+        $word =~ s/^\s+|\s+$//g;
+        if ($word eq '') {
+            $status->configure(-text => 'Escribe o selecciona una palabra primero.');
+            return;
+        }
+
+        # --- Cache hit: sin tocar la API ---
+        if ($audio->has_cache($word)) {
+            my $path = $audio->cache_path($word);
+            if ($audio->play($path)) {
+                $status->configure(-text => "▶ Reproduciendo \"$word\" (desde caché).");
+            } else {
+                $status->configure(-text => "Audio en caché: $path (no hay reproductor).");
+            }
+            return;
+        }
+
+        # --- Cache miss: pedimos a OpenAI y guardamos ---
+        $status->configure(-text => "Generando audio para \"$word\"...");
+        $btn->configure(-state => 'disabled') if $btn;
+        $mw->update();
+
+        $mw->after(50, sub {
+            my ($path, $err) = $audio->ensure($word, $openai, voice => 'alloy');
+            $btn->configure(-state => 'normal') if $btn;
+
+            if ($err) {
+                chomp(my $m = $err);
+                $status->configure(-text => "Error TTS: $m");
+                return;
+            }
+
+            if ($audio->play($path)) {
+                $status->configure(-text => "▶ Reproduciendo \"$word\" (guardado en caché).");
+            } else {
+                $status->configure(-text =>
+                    "Audio guardado en $path (no hay reproductor: instala pulseaudio-utils o ffmpeg).");
+            }
+        });
+    };
+
+    # =====================================================================
+    #  Handlers de UI (ya podemos cablear los botones)
+    # =====================================================================
+
+    $speak_button->configure(-command => sub {
+        $play_audio_for->($english_entry->get(), $speak_button);
+    });
+
     $save_button->configure(-command => sub {
         my $english = $english_entry->get() // '';
         $english =~ s/^\s+|\s+$//g;
@@ -315,29 +405,30 @@ sub run {
             $status->configure(-text =>
                 "Palabra \"$english\" guardada con significados (EN/ES) y ejemplos.");
             $english_entry->delete(0, 'end');
-            $filter_entry->delete(0, 'end');   # limpiamos el filtro para ver la nueva
+            $filter_entry->delete(0, 'end');
             $refresh_all->();
         });
     });
 
-    # ---------------- Filtro ----------------
     $filter_button->configure(-command => sub { $refresh_all->(); });
-    $filter_entry->bind('<Return>'    => sub { $refresh_all->(); });
-    $filter_entry->bind('<KeyRelease>' => sub { $refresh_all->(); });   # filtrado en vivo
+    $filter_entry->bind('<Return>'     => sub { $refresh_all->(); });
+    $filter_entry->bind('<KeyRelease>' => sub { $refresh_all->(); });
 
     $clear_button->configure(-command => sub {
+        $english_entry->delete(0, 'end');   # ← nuevo
         $filter_entry->delete(0, 'end');
-        $refresh_all->();
+        $refresh_all->();                   # repinta la tabla sin filtro
+        $english_entry->focus;              # ← opcional, pero comodo
+        $status->configure(-text => 'Campos limpiados.');
     });
 
-    # ---------------- Paginación ----------------
     $prev_button->configure(-command => sub {
         return if $current_page <= 0;
         $current_page--;
         $render_table->();
     });
     $next_button->configure(-command => sub {
-        $current_page++;      # $render_table clampa el valor
+        $current_page++;
         $render_table->();
     });
 

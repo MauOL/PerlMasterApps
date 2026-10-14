@@ -5,6 +5,8 @@ use utf8;
 use Encode qw(encode);
 use JSON::PP;
 use HTTP::Tiny;
+use File::Temp qw(tempfile);
+use File::Spec;
 
 sub new {
     my ($class, %args) = @_;
@@ -84,6 +86,64 @@ sub lookup_word {
     $data->{meanings_es} = [] unless ref $data->{meanings_es} eq 'ARRAY';
     $data->{examples}    = [] unless ref $data->{examples}    eq 'ARRAY';
     return $data;
+}
+
+sub speak_word {
+    my ($self, $text, %opt) = @_;
+    my $bytes = $self->synthesize($text, %opt);
+
+    my ($fh, $filename) = tempfile(
+        'pron_' . _slug($text) . '_XXXX',
+        SUFFIX => '.mp3',
+        DIR    => File::Spec->tmpdir,
+        UNLINK => 0,
+    );
+    binmode $fh;
+    print {$fh} $bytes;
+    close $fh;
+    return $filename;
+}
+
+sub _slug {
+    my $s = shift // '';
+    $s =~ s/[^A-Za-z0-9]+/_/g;
+    return substr($s, 0, 30) || 'word';
+}
+
+# Devuelve los BYTES crudos del MP3 (para que Audio.pm los cachee).
+sub synthesize {
+    my ($self, $text, %opt) = @_;
+    $text //= '';
+    $text =~ s/^\s+|\s+$//g;
+    die "Texto vacío para TTS.\n"             if $text eq '';
+    die "Falta la variable OPENAI_API_KEY.\n" unless $self->{api_key};
+
+    my $payload = {
+        model => $opt{model} // 'gpt-4o-mini-tts',
+        input => $text,
+        voice => $opt{voice} // 'alloy',
+        response_format => $opt{format} // 'mp3',
+    };
+
+    my $res = $self->{http}->post(
+        'https://api.openai.com/v1/audio/speech',
+        {
+            headers => {
+                'Authorization' => 'Bearer ' . $self->{api_key},
+                'Content-Type'  => 'application/json',
+            },
+            content => encode_json($payload),
+        }
+    );
+
+    unless ($res->{success}) {
+        my $detail = $res->{content} // '';
+        $detail =~ s/\s+/ /g;
+        die sprintf("Error de TTS (%s %s): %s\n",
+            $res->{status}, $res->{reason}, $detail);
+    }
+
+    return $res->{content};
 }
 
 sub _build_prompt {

@@ -6,6 +6,7 @@ use open ':std', ':encoding(UTF-8)';
 use JSON::PP;
 use File::Spec;
 use File::Path qw(make_path);
+use File::Basename qw(dirname);
 
 sub new {
     my ($class) = @_;
@@ -19,9 +20,24 @@ sub new {
     return $self;
 }
 
+# Sube desde el directorio del modulo hasta hallar app.pl (o bin/app.pl).
+# Asi los datos quedan junto al proyecto, no en $HOME.
+sub _project_root {
+    my $dir = File::Spec->rel2abs(dirname(__FILE__));
+    my $cur = $dir;
+    for (1 .. 6) {
+        return $cur if -e File::Spec->catfile($cur, 'app.pl');
+        return $cur if -e File::Spec->catfile($cur, 'bin', 'app.pl');
+        my $up = File::Spec->rel2abs(File::Spec->catdir($cur, '..'));
+        last if $up eq $cur;
+        $cur = $up;
+    }
+    return $dir;   # fallback: junto al propio modulo
+}
+
 sub _data_dir {
-    my $home = $ENV{APPDATA} || $ENV{HOME} || '.';
-    return File::Spec->catdir($home, 'PerlDictionaryApp');
+    return $ENV{DICT_DATA_DIR} if $ENV{DICT_DATA_DIR};
+    return File::Spec->catdir(_project_root(), 'data');
 }
 
 sub load_words {
